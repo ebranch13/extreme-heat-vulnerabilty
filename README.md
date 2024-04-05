@@ -1,2 +1,6 @@
 # extreme-heat-vulnerabilty
+As temperatures rise across the globe, the ability to withstand extreme heat becomes increasingly essential. The ability of a person to withstand extreme heat tends to be affected by their area of residence, with factors like increased tree cover, for example, helping cool the area. Additionally, social factors such as the ability to afford air conditioning, belonging to a community that can help if there are issues, willingness to seek help, and an individual's physical condition can all affect their vulnerability to extreme heat. This study seeks to examine both spatial and social factors of vulnerability to heat to develop a Vulnerability Index- a comprehensive rating that can guide planners and lawmakers on which areas in their cities require more intervention and how quickly this intervention is needed. The methodology of this study replicates a study conducted on the city of Phoenix, Arizona by Winston T. L. Chow, Wen-Ching Chuang, and Patricia Gober, titled Vulnerability to Extreme Heat in Metropolitan Phoenix: Spatial, Temporal, and Demographic Dimensions (2012).
+This project was completed for PLAN 6122, Urban Analytics.
+
+Check out the Shiny Dashboard <a href= "https://elb3dy.shinyapps.io/simple_dash/">here</a>
  
