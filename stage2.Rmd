@@ -1,0 +1,273 @@
+---
+title: "Final Project"
+output: html_notebook
+---
+
+
+```{r label = " setup & get HBOunds"}
+
+library(lubridate)
+library(tidyverse)
+library(knitr)
+library(grid)
+library(rsample)
+library(rstatix)
+library(sf)
+library(tmap)
+library(tidycensus)
+houston_b <- st_read("./Shapefiles/COH_ADMINISTRATIVE_BOUNDARY_-_MIL/COH_ADMINISTRATIVE_BOUNDARY_-_MIL.shp")
+
+
+harris_bound<- houston_b[ 5 , ] # new unit of analysis = Harris COunty
+
+```
+
+```{r label = "get census info"}
+
+# acs steps: get acs data, trim to houston bound, save as a shapefile
+census_api_key <- "2cb1bfe6f9ff71fe318939ad84160f3de743fa9f"
+fbnc <- get_acs( geography = "tract", 
+              variables = c(foreignBornNonCitizen = "B05002_021E"), 
+              county = "Harris County",
+              state = "TX",
+              year = 2020)
+
+fbnc_houston_20 <- fbnc
+
+pop_65NUp_20 <- get_acs( geography = "tract", 
+              variables = c(M65To66 = "B01001_020E", M67To69 = "B01001_021E", M70To74 = "B01001_022E",
+                            M75To79 = "B01001_023E", M80To84 = "B01001_024E", M85NUp = "B01001_025E",
+                            F65To66 = "B01001_044E", F67To69 = "B01001_045E", F70To74 = "B01001_046E",
+                            F75To79 = "B01001_047E", F80To84 = "B01001_048E", F85NUp = "B01001_049E"), 
+              county = "Harris County",
+      
+              state = "TX", 
+              year = 2020)
+
+pop_65NUp_20 <- pop_65NUp_20 %>%
+  group_by(NAME) %>%
+  summarise(estimate = sum(estimate))
+
+pop_65_houston_20 <- pop_65NUp_20
+
+# population below 100% of the poverty level
+below_fpl_20 <- get_acs( geography = "tract", 
+              variables = c(below_fpl = "B06012_002E"), 
+              county = "Harris County",
+              
+              state = "TX", 
+              year = 2020)
+
+bl_fpl_houston_20 <- below_fpl_20
+
+# total living in area 1 year ago, same house:  B07412PR_005E
+
+diff_hous_20_geom <- get_acs( geography = "tract", 
+              variables = c(same_hous_1 = "B07204_002E", tot_pop = "B01001_001E"), 
+              county = "Harris County",
+              state = "TX", 
+              year = 2020)
+
+diff_hous_20 <- get_acs( geography = "tract", 
+              variables = c(same_hous_1 = "B07204_002E", tot_pop = "B01001_001E"), 
+              county = "Harris County",
+              state = "TX", 
+              year = 2020)
+
+diff_hous_20 <- select(diff_hous_20, -moe)
+
+diff_hous_20 <- diff_hous_20 %>%
+  pivot_wider(
+    names_from = variable, 
+    values_from = estimate
+  )
+
+diff_hous_20 <- diff_hous_20 %>%
+  group_by(NAME) %>%
+  summarise(estimate = B01001_001 - B07204_002)
+
+
+diff_hous_houston_20 <- diff_hous_20
+
+# total population by tract
+
+tot_pop_20 <- get_acs( geography = "tract", 
+              variables = c(tot_pop = "B01001_001E"), 
+              county = "Harris County",
+              geometry = TRUE,
+              state = "TX", 
+              year = 2020)
+
+tot_pop_houston_20 <- tot_pop_20
+
+# now lets combine all the shps into one aggr shp
+
+# combine all the vars into 1 shp, rename so they dont all say "estimate"
+
+all_soc_vars20 <- rename(tot_pop_houston_20, population = estimate) %>%
+  select(-variable, -moe) %>%
+  left_join(rename(fbnc_houston_20, fbnc = estimate), by = "NAME") %>%
+  select(-variable, -moe, -GEOID.y) %>%
+  left_join(rename(pop_65_houston_20, pop_65 = estimate), by = "NAME") %>%
+  left_join(rename(bl_fpl_houston_20, bl_fpl = estimate), by = "NAME") %>%
+  select(-variable, -moe, -GEOID) %>%
+  left_join(rename(diff_hous_houston_20, diff_hous = estimate), by = "NAME") %>%
+  rename(GEOID =GEOID.x)
+
+
+```
+```{r label = "standardizing estimates"}
+
+all_soc_vars20 <- all_soc_vars20 %>%
+  mutate(fbnc_VI = fbnc/population) %>%
+  mutate(pop65_VI = pop_65/population) %>%
+  mutate(bl_fpl_VI = bl_fpl/population) %>%
+  mutate(diff_hous_VI = diff_hous / population) %>%
+  mutate(all_soc_VI = (fbnc_VI + pop65_VI + bl_fpl_VI + diff_hous_VI) * 0.25)
+
+```
+
+
+```{r label = "NDVI"}
+
+
+# Create NDVI values
+
+band_4_0 <- raster::raster("C:/Users/Emily/OneDrive/Desktop/PLAN/Plan_6122/FinalProj/NVDI_LandSat/toMosaic/LC08_L1TP_025039_20210401_20210409_02_T1_B4.TIF")
+
+band_4_0 <- raster::trim(band_4_0)
+
+harris_to_clip <- st_transform(harris_bound, crs = st_crs(band_4_0))
+band_4_smaller <-  raster::mask(raster::crop(band_4_0, harris_to_clip), harris_to_clip)
+
+band_4 <- raster::projectRaster(band_4_smaller, crs = "EPSG:4269")
+
+
+b5_pt2 <-  raster::raster("NVDI_LandSat/toMosaic/LC08_L1TP_025039_20210401_20210409_02_T1_B5.TIF")
+
+#this one contains most of harris county... lets just use this one
+
+harris_to_clip3 <- st_transform(harris_bound, crs = st_crs(b5_pt2))
+
+b5_pt2 <- raster::trim(b5_pt2)
+
+b5_pt2_sm <- raster::mask(raster::crop(b5_pt2, harris_to_clip3), harris_to_clip3)
+
+b5_pt2_proj <- raster::projectRaster(b5_pt2_sm, crs="EPSG:4269")
+
+band_5 <- b5_pt2_proj
+
+
+
+ndvi <- ((band_5 - band_4) / (band_5 + band_4))
+
+raster::cellStats(ndvi, range)
+
+ 
+output <- tibble()
+
+for (i in seq_along(all_soc_vars20$NAME)) {
+  
+    this_tract <- mask(ndvi, all_soc_vars20[i,], fun = mean, na.rm = TRUE, df = TRUE)
+    the_tract_name <- all_soc_vars20$NAME[i]
+    the_mean_ndvi <- mean(getValues(this_tract), na.rm = TRUE)
+    
+    this_record <- cbind(i, the_tract_name, the_mean_ndvi)
+  
+    colnames(this_record) <- c("ID", "NAME", "MeanNDVI")
+    output <- rbind(output, this_record)
+}
+ 
+all_VI_20 <- left_join(all_soc_vars20, select(output, -ID), by = "NAME")
+
+all_VI_20$MeanNDVI <- as.numeric(all_VI_20$MeanNDVI)
+
+```
+```{r label = "Surface Temp"}
+ST_americas <- raster::raster("Temp/sdei-global-summer-lst-2013-americas/sdei-global-summer-lst-2013-americas/sdei-global-summer-lst-2013-day-max-americas.tif")
+
+
+harris_to_clip4 <- st_transform(harris_bound, crs = st_crs(ST_americas))
+
+St_americas <- raster::trim(ST_americas)
+
+St_Harris <- raster::mask(raster::crop(St_americas, harris_to_clip4), harris_to_clip4)
+
+st_Harris_proj <- raster::projectRaster(St_Harris, crs="EPSG:4269")
+
+
+ST_output <- tibble()
+
+for (i in seq_along(all_soc_vars20$NAME)) {
+  
+    this_tract <- mask(st_Harris_proj, all_soc_vars20[i,], fun = mean, na.rm = TRUE, df = TRUE)
+    the_tract_name <- all_soc_vars20$NAME[i]
+    the_mean_Temp <- mean(getValues(this_tract), na.rm = TRUE)
+    
+    this_record <- cbind(i, the_tract_name, the_mean_Temp)
+  
+    colnames(this_record) <- c("ID", "NAME", "MeanTemp")
+    ST_output <- rbind(ST_output, this_record)
+}
+
+ST_output <- rename(ST_output, "MeanTempMax" = "MeanTemp")
+St_output <- select(ST_output, -ID)
+
+ST_am_min <- raster::raster("Temp/sdei-global-summer-lst-2013-americas/sdei-global-summer-lst-2013-americas/sdei-global-summer-lst-2013-night-min-americas.tif")
+
+
+harris_to_clip5 <- st_transform(harris_bound, crs = st_crs(ST_am_min))
+
+ST_am_min <- raster::trim(ST_am_min)
+
+St_Harris_Min <- raster::mask(raster::crop(ST_am_min, harris_to_clip5), harris_to_clip5)
+
+st_Harris_proj_min <- raster::projectRaster(St_Harris_Min, crs="EPSG:4269")
+
+
+ST_output_min <- tibble()
+
+for (i in seq_along(all_soc_vars20$NAME)) {
+  
+    this_tract <- mask(st_Harris_proj_min, all_soc_vars20[i,], fun = mean, na.rm = TRUE, df = TRUE)
+    the_tract_name <- all_soc_vars20$NAME[i]
+    the_mean_Temp <- mean(getValues(this_tract), na.rm = TRUE)
+    
+    this_record <- cbind(the_tract_name, the_mean_Temp)
+  
+    colnames(this_record) <- c("NAME", "MeanTempMin")
+    ST_output_min <- rbind(ST_output_min, this_record)
+}
+
+all_VI_20 <- left_join(all_VI_20, ST_output, by = "NAME")
+all_VI_20 <- left_join(all_VI_20, ST_output_min, by = "NAME")
+all_VI_20$MeanTempMax = as.numeric(all_VI_20$MeanTempMax)
+all_VI_20$MeanTempMin = as.numeric(all_VI_20$MeanTempMin)
+
+
+norm_VI_20 <- all_VI_20 %>%
+  mutate(normMaxTmp = (MeanTempMax - min(na.omit(all_VI_20$MeanTempMax)))/( max(na.omit(all_VI_20$MeanTempMax)) - min(na.omit(all_VI_20$MeanTempMax))))
+
+norm_VI_20 <- norm_VI_20 %>%
+  mutate(normMinTmp = (MeanTempMin - min(na.omit(all_VI_20$MeanTempMin)))/( max(na.omit(all_VI_20$MeanTempMin)) - min(na.omit(all_VI_20$MeanTempMin))))
+
+norm_VI_20 <- norm_VI_20 %>%
+  mutate(normNDVI = (MeanNDVI - min(na.omit(all_VI_20$MeanNDVI)))/( max(na.omit(all_VI_20$MeanNDVI)) - min(na.omit(all_VI_20$MeanNDVI))))
+
+```
+```{r label = "calc final overall VI"}
+
+# will use formula adoped from the original article
+
+final_VI_20 <- mutate(norm_VI_20, VI = normMaxTmp + normMinTmp + (1 - normNDVI) + pop65_VI + bl_fpl_VI + diff_hous_VI + fbnc_VI)
+
+# create correlation matrix for all of these variables: each social VI, MeanNDVI, MeanTempMax, MeanTempMin
+
+
+corr_matrix <- DataExplorer::plot_correlation(na.omit(final_VI_20[ , c("normNDVI", "normMaxTmp", "normMinTmp", "pop65_VI", "bl_fpl_VI", "diff_hous_VI", "fbnc_VI")]))
+
+
+
+```
+
+

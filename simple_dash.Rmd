@@ -1,0 +1,128 @@
+---
+title: "Social and Spatial Vulnerability to Heat in Harris County, Tx"
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    source_code: embed
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(rsconnect)
+library(lubridate)
+library(tidyverse)
+library(knitr)
+library(grid)
+library(rsample)
+library(rstatix)
+library(sf)
+library(tmap)
+library(tidycensus)
+library(RColorBrewer)
+library(tidycensus)
+
+county_bound <- st_read("./harris_boundary.geojson")
+
+all_Vi <- st_read("./final_VI_20.geojson")
+
+cropt_roads <- st_read("./cropt_roads.geojson")
+cropt_roads <- mutate(cropt_roads, col = "")
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+### <b> Vulnerability to Extreme Heat, given by the Vulnerability Index (VI) </b>
+  VI seeks to indentify tracts in Harris County whose population is at a higher 
+  risk of extreme heat-related illnesses or injuries.
+  <br>
+  <b> The vulnerability index consists of several factors, social and spatial: </b>
+  <br>
+  Social:
+   <li> The percentage of each census tract that is above age 65 (pop_65). </li>
+  <li> The percentage of each census tract that is a foreign born, non-citizen (FBNC). </li>
+   <li> The percentage of each census tract that has changed houses in the last year (diff_hous). </li>
+  <li> The percentage of each census tract that is below the federal poverty line (FPL). </li>
+  <br>
+  Spatial:
+  <li> The mean normalized difference vegetation index (NDVI) , an indication of how much 
+  greenery is present per census tract </li>
+  <li>The mean minimum nighttime temperature of July - August</li>
+  <li>The mean maxiumum daytime  temperature of July - August </li>
+
+### Combined Vulnerability Index, Harris County, 2020
+
+```{r label = "chart A", messages = FALSE, warnings = FALSE}
+
+all_Vi <- mutate(all_Vi, normVI = ((VI - min(na.omit(all_Vi$VI)))/( max(na.omit(all_Vi$VI)) - min(na.omit(all_Vi$VI)))))
+
+tmap_mode("view")
+
+  
+    tm_shape(all_Vi) +
+  tm_polygons(col = "normVI", 
+              palette = c("yellow", "violet", "darkblue"),
+              popup.vars = c(
+              "Vulnerability Index " = "normVI", 
+              "Population" = "population",
+              "NDVI" = "MeanNDVI",
+              "Social VI" = "all_soc_VI"),
+          title = "Vulnerability Index") +
+      tm_shape(cropt_roads) +
+      tm_lines(col = "col" , palette = "black", title.col = "Roads")
+
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Correlations Between Vulnerability Factors
+
+```{r label = "corrs", messages = FALSE, warnings = FALSE}
+all_vi_renamed <- rename(all_Vi, "NDVI" = "normNDVI", "Maximum Temperature" = "normMaxTmp" , "Minimum Temperature" = "normMinTmp", "Over 65" = "pop65_VI", "Below FPL" = "bl_fpl_VI", "Diff Hous" = "diff_hous_VI", "FBNC" = "fbnc_VI" )
+
+DataExplorer::plot_correlation(na.omit(all_vi_renamed[ , c("NDVI", "Maximum Temperature", "Minimum Temperature", "Over 65", "Below FPL", "Diff Hous", "FBNC")]))
+
+```
+
+### Overall Social Vulnerability
+
+```{r label = "overallsocial", messages = FALSE, warnings = FALSE}
+
+tm_shape(all_Vi) +
+  tm_polygons(col = "all_soc_VI", 
+              palette = c("yellow", "violet", "darkblue"),
+              popup.vars = c(
+                "Social Vulnerability Index" = "all_soc_VI",
+              "Foriegn born, non-citizen " = "fbnc", 
+              "Population over 65" = "pop_65",
+              "Changed housing in last year" = "diff_hous",
+              "Below poverty line" = "bl_fpl", 
+              "Overall Population" = "population"),
+          title = "Social Vulnerability Index") +
+  tm_shape(cropt_roads) +
+      tm_lines(col = "col" , palette = "black", title.col = "Roads")
+
+```
+
+### Overall Spatial Vulnerability
+```{r}
+
+tm_shape(all_Vi) +
+  tm_polygons(col = "MeanNDVI", 
+              palette = c("lightyellow", "yellow", "darkgreen"),
+              popup.vars = c(
+              "NDVI" = "MeanNDVI",
+              "Maximum Temperature (Celsius)" = "MeanTempMax",
+              "Minimum Temperature (Celsius)" = "MeanTempMin"),
+          title = "NDVI",
+          style = "fixed", 
+          breaks = c(0.0, 0.1, 0.2, 0.3, 0.4)) +
+  tm_shape(cropt_roads) +
+      tm_lines(col = "col" , palette = "black", title.col = "Roads")
+
+```
+
